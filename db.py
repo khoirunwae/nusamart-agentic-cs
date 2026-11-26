@@ -1,6 +1,6 @@
 import os
-import re
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 import streamlit as st
 from supabase import create_client, Client
 
@@ -14,14 +14,18 @@ def _get_secret(key: str) -> str:
     return os.environ.get(key, "").strip()
 
 
-@st.cache_resource
 def get_supabase() -> Client:
     raw_url = _get_secret("SUPABASE_URL")
     key = _get_secret("SUPABASE_KEY")
     if not raw_url or not key:
         raise RuntimeError("SUPABASE_URL dan SUPABASE_KEY belum diisi di Streamlit Secrets.")
-    # Normalisasi URL jika pengguna menyalin URL Data API yang berakhiran /rest/v1
-    url = re.sub(r"/rest/v1/?$", "", raw_url.rstrip("/"))
+    if "supabase.com/dashboard" in raw_url:
+        raise RuntimeError(
+            "SUPABASE_URL salah format (terdeteksi URL dashboard). "
+            "Gunakan Project URL dari Project Settings -> Data API (format: https://xxxx.supabase.co)."
+        )
+    parsed = urlparse(raw_url)
+    url = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else raw_url.rstrip("/")
     return create_client(url, key)
 
 

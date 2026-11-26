@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import uuid
 import streamlit as st
 from google import genai
@@ -37,11 +38,26 @@ def _get_secret(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
 
 
+def _generate_with_fallback(client: genai.Client, primary_model: str, contents, config):
+    fallback_models = [primary_model, "gemini-3.5-flash-lite"]
+    last_exc = None
+    for idx, mdl in enumerate(fallback_models):
+        try:
+            return client.models.generate_content(model=mdl, contents=contents, config=config)
+        except Exception as exc:
+            last_exc = exc
+            err_str = str(exc)
+            if ("503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str) and idx < len(fallback_models) - 1:
+                time.sleep(1.0)
+                continue
+            raise
+    raise last_exc
+
+
 def run_agent_turn(user_text: str, model_name: str = "gemini-3.8-flash") -> tuple[str, list[dict]]:
     session_id = st.session_state["session_id"]
     traces = []
 
-    # 1. Guardrail Input Scan (OWASP LLM01)
     if INJECTION_PATTERN.search(user_text):
         db.log_audit(session_id, "PROMPT_INJECTION_BLOCKED", f"input={user_text[:120]}", severity="HIGH")
         traces.append({"step": "GUARDRAIL", "detail": "Prompt injection terdeteksi dan diblokir sebelum memanggil LLM/Tools."})
@@ -62,7 +78,7 @@ def run_agent_turn(user_text: str, model_name: str = "gemini-3.8-flash") -> tupl
     for msg in st.session_state["messages"][-8:]:
         role = "user" if msg["role"] == "user" else "model"
         contents.append(types.Content(role=role, parts=[types.Part.from_text(text=msg["content"])]))
-    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=f"[{auth_note}]\n{user_text}")]))
+    contents.append(types.Content(role=role if False else "user", parts=[types.Part.from_text(text=f"[{auth_note}]\n{user_text}")]))
 
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
@@ -72,7 +88,7 @@ def run_agent_turn(user_text: str, model_name: str = "gemini-3.8-flash") -> tupl
 
     final_reply = "Maaf, saya belum bisa memproses permintaan Anda saat ini."
     for step_idx in range(5):
-        response = client.models.generate_content(model=model_name, contents=contents, config=config)
+        response = _generate_with_fallback(client, model_name, contents, config)
         if not response.function_calls:
             final_reply = response.text or final_reply
             traces.append({"step": f"RESPOND (Turn {step_idx + 1})", "detail": "Jawaban final dihasilkan."})
