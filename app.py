@@ -8,7 +8,14 @@ from google.genai import types
 import db
 import agent_tools
 
-st.set_page_config(page_title="NusaMart Agentic AI CS", page_icon="🛍️", layout="wide")
+is_admin_route = st.query_params.get("page", "") == "admin"
+
+st.set_page_config(
+    page_title="NusaMart Admin & Demo" if is_admin_route else "NusaMart Customer Service",
+    page_icon="🛡️" if is_admin_route else "🛍️",
+    layout="wide",
+    initial_sidebar_state="expanded" if is_admin_route else "collapsed",
+)
 
 SYSTEM_PROMPT = """Kamu adalah NusaMart CS Agent, asisten layanan pelanggan e-commerce mandiri berbahasa Indonesia yang ramah, akurat, dan taat aturan tata kelola.
 
@@ -128,59 +135,7 @@ def run_agent_turn(user_text: str, model_name: str = "gemini-3.5-flash-lite") ->
     return final_reply, traces
 
 
-if "session_id" not in st.session_state:
-    st.session_state["session_id"] = str(uuid.uuid4())[:8]
-if "messages" not in st.session_state:
-    st.session_state["messages"] = [
-        {
-            "role": "assistant",
-            "content": (
-                "Halo! Saya **NusaMart CS Agent**. Saya bisa membantu cek katalog & stok, membuat pesanan baru, "
-                "melacak pengiriman, konfirmasi barang sampai, ubah alamat, ubah metode pembayaran, pembatalan, hingga pengajuan refund. "
-                "Ada yang bisa saya bantu hari ini?"
-            ),
-        }
-    ]
-if "last_traces" not in st.session_state:
-    st.session_state["last_traces"] = []
-if "verified_email" not in st.session_state:
-    st.session_state["verified_email"] = None
-
-with st.sidebar:
-    st.title("🛍️ NusaMart CS Agent")
-    st.caption("Agentic AI Customer Service")
-
-    view_mode = st.radio(
-        "Mode Tampilan",
-        ["Mode Demo Dosen (Lengkap)", "Mode Pelanggan (Bersih)"],
-        index=0,
-    )
-
-    v_email = st.session_state.get("verified_email")
-    if v_email:
-        st.success(f"OTP Terverifikasi: {v_email}")
-    else:
-        st.warning("Auth: Belum Verifikasi Email OTP")
-
-    model_choice = "gemini-3.5-flash-lite"
-    if view_mode == "Mode Demo Dosen (Lengkap)":
-        model_choice = st.selectbox("Model Gemini", ["gemini-3.5-flash-lite", "gemini-3.8-flash"], index=0)
-
-    if st.button("Reset Sesi Chat", use_container_width=True):
-        st.session_state["messages"] = st.session_state["messages"][:1]
-        st.session_state["verified_email"] = None
-        st.session_state["last_traces"] = []
-        st.rerun()
-
-    if view_mode == "Mode Demo Dosen (Lengkap)":
-        st.divider()
-        st.markdown("**Status Koneksi:**")
-        st.write("• Gemini API:", "✅ Siap" if _get_secret("GEMINI_API_KEY") else "❌ Belum diisi")
-        st.write("• Supabase:", "✅ Siap" if _get_secret("SUPABASE_URL") else "❌ Belum diisi")
-        st.write("• Gmail OTP:", "✅ Siap" if _get_secret("SMTP_USER") else "⚠️ Mode Fallback Demo")
-
-
-def render_chat_ui(show_trace: bool):
+def render_chat_ui(show_trace: bool, model_name: str = "gemini-3.5-flash-lite"):
     if show_trace:
         col_chat, col_trace = st.columns([3, 2], gap="large")
     else:
@@ -203,16 +158,16 @@ def render_chat_ui(show_trace: bool):
                     with st.expander(t["step"], expanded=True):
                         st.json(t)
 
-    user_prompt = st.chat_input("Ketik pesan pelanggan (misal: Lihat produk, Beli PRD-01, atau Lacak #INV-2048)...")
+    user_prompt = st.chat_input("Ketik pesan Anda di sini (misal: Lihat produk, Beli PRD-01, atau Lacak #INV-2048)...")
     if user_prompt:
         st.session_state["messages"].append({"role": "user", "content": user_prompt})
         with col_chat:
             with st.chat_message("user"):
                 st.markdown(user_prompt)
             with st.chat_message("assistant"):
-                with st.spinner("Agen sedang memproses..."):
+                with st.spinner("Sedang memproses..."):
                     try:
-                        reply, traces = run_agent_turn(user_prompt, model_name=model_choice)
+                        reply, traces = run_agent_turn(user_prompt, model_name=model_name)
                     except Exception as exc:
                         err_msg = str(exc)
                         if "503" in err_msg or "UNAVAILABLE" in err_msg:
@@ -227,53 +182,70 @@ def render_chat_ui(show_trace: bool):
         st.rerun()
 
 
-if view_mode == "Mode Pelanggan (Bersih)":
-    tab_chat, tab_catalog = st.tabs(["💬 Chat Customer Service", "🛒 Katalog Produk"])
-    with tab_chat:
-        render_chat_ui(show_trace=False)
-    with tab_catalog:
-        st.subheader("Katalog Produk NusaMart")
-        try:
-            st.dataframe(db.fetch_products(), use_container_width=True, hide_index=True)
-        except Exception as exc:
-            st.error(f"Gagal memuat produk: {exc}")
-else:
-    tab_chat, tab_store, tab_admin = st.tabs(["💬 Chatbot CS", "🛒 Etalase & Simulasi Kurir", "🛡️ Admin & Human Approval"])
-    with tab_chat:
-        render_chat_ui(show_trace=True)
+# Inisialisasi Session State
+if "session_id" not in st.session_state:
+    st.session_state["session_id"] = str(uuid.uuid4())[:8]
+if "messages" not in st.session_state:
+    st.session_state["messages"] = [
+        {
+            "role": "assistant",
+            "content": (
+                "Halo! Saya **NusaMart CS Agent**. Saya bisa membantu cek katalog & stok, membuat pesanan baru, "
+                "melacak pengiriman, konfirmasi barang sampai, ubah alamat, ubah metode pembayaran, pembatalan, hingga pengajuan refund. "
+                "Ada yang bisa saya bantu hari ini?"
+            ),
+        }
+    ]
+if "last_traces" not in st.session_state:
+    st.session_state["last_traces"] = []
+if "verified_email" not in st.session_state:
+    st.session_state["verified_email"] = None
+if "admin_unlocked" not in st.session_state:
+    st.session_state["admin_unlocked"] = False
 
-    with tab_store:
-        st.subheader("Katalog Produk Real-Time (Supabase)")
-        try:
-            products = db.fetch_products()
-            st.dataframe(products, use_container_width=True, hide_index=True)
-        except Exception as exc:
-            st.error(f"Gagal memuat produk dari Supabase: {exc}")
 
+# ==========================================
+# ROUTE 1: HALAMAN ADMIN (?page=admin)
+# ==========================================
+if is_admin_route:
+    with st.sidebar:
+        st.title("🛡️ NusaMart Admin")
+        st.caption("Panel Kontrol, Approval & Demo Dosen")
+        model_choice = st.selectbox("Model Gemini", ["gemini-3.5-flash-lite", "gemini-3.8-flash"], index=0)
         st.divider()
-        st.subheader("Simulasi Pembayaran & Status Kurir (Untuk Keperluan Demo)")
-        try:
-            orders = db.fetch_orders()
-            if orders:
-                order_ids = [o["order_id"] for o in orders]
-                c1, c2, c3 = st.columns([2, 2, 1])
-                with c1:
-                    sel_order = st.selectbox("Pilih Nomor Order", order_ids)
-                with c2:
-                    new_status = st.selectbox("Ubah Status Menjadi", ["PENDING_PAYMENT", "PAID_UNSHIPPED", "IN_TRANSIT", "DELIVERED"])
-                with c3:
-                    st.write("")
-                    st.write("")
-                    if st.button("Update Status", use_container_width=True):
-                        db.update_order_status(sel_order, new_status)
-                        db.log_audit(st.session_state["session_id"], "DEMO_STATUS_UPDATE", f"{sel_order} -> {new_status}")
-                        st.success(f"Status {sel_order} diperbarui ke {new_status}")
-                        st.rerun()
-        except Exception as exc:
-            st.error(f"Gagal memuat data order: {exc}")
+        st.markdown("**Status Koneksi:**")
+        st.write("• Gemini API:", "✅ Siap" if _get_secret("GEMINI_API_KEY") else "❌ Belum diisi")
+        st.write("• Supabase:", "✅ Siap" if _get_secret("SUPABASE_URL") else "❌ Belum diisi")
+        st.write("• Gmail OTP:", "✅ Siap" if _get_secret("SMTP_USER") else "⚠️ Mode Fallback Demo")
+        if st.session_state["admin_unlocked"] and st.button("Kunci Panel Admin", use_container_width=True):
+            st.session_state["admin_unlocked"] = False
+            st.rerun()
 
-    with tab_admin:
-        st.subheader("Antrean Human-in-the-Loop (Approval Refund > Rp 500.000 & Tiket)")
+    if not st.session_state["admin_unlocked"]:
+        st.title("🔐 Login Admin NusaMart")
+        st.caption("Masukkan PIN Admin untuk mengakses Human Approval, Manajemen Order, dan Audit Log.")
+        expected_pin = _get_secret("ADMIN_PIN", "admin123")
+        with st.form("admin_login_form"):
+            pin_input = st.text_input("PIN Admin", type="password", placeholder="Default jika belum diatur: admin123")
+            submitted = st.form_submit_button("Masuk ke Panel Admin")
+            if submitted:
+                if pin_input == expected_pin:
+                    st.session_state["admin_unlocked"] = True
+                    st.rerun()
+                else:
+                    st.error("PIN Admin salah.")
+        st.stop()
+
+    st.title("🛡️ Dashboard Admin & Human-in-the-Loop")
+    tab_hitl, tab_orders, tab_logs, tab_demo = st.tabs([
+        "✅ Human Approval & Tiket",
+        "📦 Manajemen Order & Stok",
+        "📜 Audit Log Keamanan",
+        "💬 Demo Chat + Trace",
+    ])
+
+    with tab_hitl:
+        st.subheader("Antrean Persetujuan Staf (Refund > Rp 500.000 & Tiket Eskalasi)")
         try:
             tickets = db.fetch_tickets()
             if not tickets:
@@ -300,17 +272,69 @@ else:
         except Exception as exc:
             st.error(f"Gagal memuat tiket: {exc}")
 
-        st.divider()
-        col_o, col_a = st.columns(2)
-        with col_o:
-            st.subheader("Daftar Order Terbaru")
-            try:
-                st.dataframe(db.fetch_orders(20), use_container_width=True, hide_index=True)
-            except Exception as exc:
-                st.error(str(exc))
-        with col_a:
-            st.subheader("Audit Log Keamanan & Tool Calls")
-            try:
-                st.dataframe(db.fetch_audit_logs(20), use_container_width=True, hide_index=True)
-            except Exception as exc:
-                st.error(str(exc))
+    with tab_orders:
+        st.subheader("Simulasi Status Kurir & Pembayaran")
+        try:
+            orders = db.fetch_orders(30)
+            if orders:
+                order_ids = [o["order_id"] for o in orders]
+                c1, c2, c3 = st.columns([2, 2, 1])
+                with c1:
+                    sel_order = st.selectbox("Pilih Nomor Order", order_ids)
+                with c2:
+                    new_status = st.selectbox("Ubah Status Menjadi", ["PENDING_PAYMENT", "PAID_UNSHIPPED", "IN_TRANSIT", "DELIVERED"])
+                with c3:
+                    st.write("")
+                    st.write("")
+                    if st.button("Update Status", use_container_width=True):
+                        db.update_order_status(sel_order, new_status)
+                        db.log_audit("admin", "ADMIN_STATUS_UPDATE", f"{sel_order} -> {new_status}")
+                        st.success(f"Status {sel_order} diperbarui ke {new_status}")
+                        st.rerun()
+                st.dataframe(orders, use_container_width=True, hide_index=True)
+            st.divider()
+            st.subheader("Stok Produk Real-Time")
+            st.dataframe(db.fetch_products(), use_container_width=True, hide_index=True)
+        except Exception as exc:
+            st.error(f"Gagal memuat data order/produk: {exc}")
+
+    with tab_logs:
+        st.subheader("Audit Log Keamanan & Tool Calls")
+        try:
+            st.dataframe(db.fetch_audit_logs(50), use_container_width=True, hide_index=True)
+        except Exception as exc:
+            st.error(f"Gagal memuat audit log: {exc}")
+
+    with tab_demo:
+        render_chat_ui(show_trace=True, model_name=model_choice)
+
+
+# ==========================================
+# ROUTE 2: HALAMAN PELANGGAN (URL UTAMA)
+# ==========================================
+else:
+    with st.sidebar:
+        st.title("🛍️ NusaMart")
+        st.caption("Layanan Pelanggan Resmi")
+        v_email = st.session_state.get("verified_email")
+        if v_email:
+            st.success(f"Akun terverifikasi: {v_email}")
+        else:
+            st.info("Status: Tamu (Belum Verifikasi OTP)")
+
+        if st.button("Mulai Percakapan Baru", use_container_width=True):
+            st.session_state["messages"] = st.session_state["messages"][:1]
+            st.session_state["verified_email"] = None
+            st.session_state["last_traces"] = []
+            st.rerun()
+
+    st.title("🛍️ NusaMart Customer Service")
+    tab_chat, tab_catalog = st.tabs(["💬 Chat Customer Service", "🛒 Katalog Produk"])
+    with tab_chat:
+        render_chat_ui(show_trace=False, model_name="gemini-3.5-flash-lite")
+    with tab_catalog:
+        st.subheader("Katalog Produk NusaMart")
+        try:
+            st.dataframe(db.fetch_products(), use_container_width=True, hide_index=True)
+        except Exception as exc:
+            st.error(f"Gagal memuat katalog produk: {exc}")
