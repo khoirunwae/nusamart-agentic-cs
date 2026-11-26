@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timedelta, timezone
 import streamlit as st
 from supabase import create_client, Client
@@ -15,10 +16,12 @@ def _get_secret(key: str) -> str:
 
 @st.cache_resource
 def get_supabase() -> Client:
-    url = _get_secret("SUPABASE_URL")
+    raw_url = _get_secret("SUPABASE_URL")
     key = _get_secret("SUPABASE_KEY")
-    if not url or not key:
+    if not raw_url or not key:
         raise RuntimeError("SUPABASE_URL dan SUPABASE_KEY belum diisi di Streamlit Secrets.")
+    # Normalisasi URL jika pengguna menyalin URL Data API yang berakhiran /rest/v1
+    url = re.sub(r"/rest/v1/?$", "", raw_url.rstrip("/"))
     return create_client(url, key)
 
 

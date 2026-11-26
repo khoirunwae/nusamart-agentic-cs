@@ -37,7 +37,7 @@ def _get_secret(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
 
 
-def run_agent_turn(user_text: str, model_name: str = "gemini-2.5-flash") -> tuple[str, list[dict]]:
+def run_agent_turn(user_text: str, model_name: str = "gemini-3.8-flash") -> tuple[str, list[dict]]:
     session_id = st.session_state["session_id"]
     traces = []
 
@@ -58,7 +58,6 @@ def run_agent_turn(user_text: str, model_name: str = "gemini-2.5-flash") -> tupl
     verified = st.session_state.get("verified_email")
     auth_note = f"Status sesi saat ini: Email terverifikasi = {verified}" if verified else "Status sesi saat ini: Belum verifikasi Email OTP."
 
-    # Bangun riwayat percakapan untuk Gemini
     contents = []
     for msg in st.session_state["messages"][-8:]:
         role = "user" if msg["role"] == "user" else "model"
@@ -79,7 +78,6 @@ def run_agent_turn(user_text: str, model_name: str = "gemini-2.5-flash") -> tupl
             traces.append({"step": f"RESPOND (Turn {step_idx + 1})", "detail": "Jawaban final dihasilkan."})
             break
 
-        # Catat model response yang meminta tool call
         if response.candidates:
             contents.append(response.candidates[0].content)
 
@@ -106,7 +104,6 @@ def run_agent_turn(user_text: str, model_name: str = "gemini-2.5-flash") -> tupl
     return final_reply, traces
 
 
-# Inisialisasi Session State
 if "session_id" not in st.session_state:
     st.session_state["session_id"] = str(uuid.uuid4())[:8]
 if "messages" not in st.session_state:
@@ -125,17 +122,25 @@ if "last_traces" not in st.session_state:
 if "verified_email" not in st.session_state:
     st.session_state["verified_email"] = None
 
-# Sidebar Status & Config Check
 with st.sidebar:
     st.title("🛍️ NusaMart CS Agent")
-    st.caption("Agentic AI Customer Service • Supabase + Gemini + Email OTP")
+    st.caption("Agentic AI Customer Service")
+
+    view_mode = st.radio(
+        "Mode Tampilan",
+        ["Mode Demo Dosen (Lengkap)", "Mode Pelanggan (Bersih)"],
+        index=0,
+    )
+
     v_email = st.session_state.get("verified_email")
     if v_email:
         st.success(f"OTP Terverifikasi: {v_email}")
     else:
         st.warning("Auth: Belum Verifikasi Email OTP")
 
-    model_choice = st.selectbox("Model Gemini", ["gemini-2.5-flash", "gemini-2.5-flash-lite"], index=0)
+    model_choice = "gemini-3.8-flash"
+    if view_mode == "Mode Demo Dosen (Lengkap)":
+        model_choice = st.selectbox("Model Gemini", ["gemini-3.8-flash", "gemini-3.5-flash-lite"], index=0)
 
     if st.button("Reset Sesi Chat", use_container_width=True):
         st.session_state["messages"] = st.session_state["messages"][:1]
@@ -143,17 +148,20 @@ with st.sidebar:
         st.session_state["last_traces"] = []
         st.rerun()
 
-    st.divider()
-    st.markdown("**Status Koneksi:**")
-    st.write("• Gemini API:", "✅ Siap" if _get_secret("GEMINI_API_KEY") else "❌ Belum diisi")
-    st.write("• Supabase:", "✅ Siap" if _get_secret("SUPABASE_URL") else "❌ Belum diisi")
-    st.write("• Gmail OTP:", "✅ Siap" if _get_secret("SMTP_USER") else "⚠️ Mode Fallback Demo")
+    if view_mode == "Mode Demo Dosen (Lengkap)":
+        st.divider()
+        st.markdown("**Status Koneksi:**")
+        st.write("• Gemini API:", "✅ Siap" if _get_secret("GEMINI_API_KEY") else "❌ Belum diisi")
+        st.write("• Supabase:", "✅ Siap" if _get_secret("SUPABASE_URL") else "❌ Belum diisi")
+        st.write("• Gmail OTP:", "✅ Siap" if _get_secret("SMTP_USER") else "⚠️ Mode Fallback Demo")
 
-tab_chat, tab_store, tab_admin = st.tabs(["💬 Chatbot CS", "🛒 Etalase & Simulasi Kurir", "🛡️ Admin & Human Approval"])
 
-# TAB 1: CHATBOT
-with tab_chat:
-    col_chat, col_trace = st.columns([3, 2], gap="large")
+def render_chat_ui(show_trace: bool):
+    if show_trace:
+        col_chat, col_trace = st.columns([3, 2], gap="large")
+    else:
+        col_chat = st.container()
+        col_trace = None
 
     with col_chat:
         for msg in st.session_state["messages"]:
@@ -167,7 +175,7 @@ with tab_chat:
                 st.markdown(user_prompt)
 
             with st.chat_message("assistant"):
-                with st.spinner("Agen sedang memproses (Perceive → Plan → Act → Verify)..."):
+                with st.spinner("Agen sedang memproses..."):
                     try:
                         reply, traces = run_agent_turn(user_prompt, model_name=model_choice)
                     except Exception as exc:
@@ -179,87 +187,102 @@ with tab_chat:
             st.session_state["last_traces"] = traces
             st.rerun()
 
-    with col_trace:
-        st.subheader("🔍 Live Agent Trace")
-        st.caption("Jejak pemanggilan Tool/API & verifikasi oleh Gemini:")
-        if not st.session_state["last_traces"]:
-            st.info("Kirim pesan di kolom chat untuk melihat siklus Perceive → Plan → Act → Verify.")
-        else:
-            for t in st.session_state["last_traces"]:
-                with st.expander(t["step"], expanded=True):
-                    st.json(t)
+    if col_trace is not None:
+        with col_trace:
+            st.subheader("🔍 Live Agent Trace")
+            st.caption("Jejak pemanggilan Tool/API & verifikasi oleh Gemini:")
+            if not st.session_state["last_traces"]:
+                st.info("Kirim pesan di kolom chat untuk melihat siklus Perceive → Plan → Act → Verify.")
+            else:
+                for t in st.session_state["last_traces"]:
+                    with st.expander(t["step"], expanded=True):
+                        st.json(t)
 
-# TAB 2: ETALASE & SIMULASI ORDER
-with tab_store:
-    st.subheader("Katalog Produk Real-Time (Supabase)")
-    try:
-        products = db.fetch_products()
-        st.dataframe(products, use_container_width=True, hide_index=True)
-    except Exception as exc:
-        st.error(f"Gagal memuat produk dari Supabase: {exc}")
 
-    st.divider()
-    st.subheader("Simulasi Pembayaran & Status Kurir (Untuk Keperluan Demo)")
-    try:
-        orders = db.fetch_orders()
-        if orders:
-            order_ids = [o["order_id"] for o in orders]
-            c1, c2, c3 = st.columns([2, 2, 1])
-            with c1:
-                sel_order = st.selectbox("Pilih Nomor Order", order_ids)
-            with c2:
-                new_status = st.selectbox("Ubah Status Menjadi", ["PENDING_PAYMENT", "PAID_UNSHIPPED", "IN_TRANSIT", "DELIVERED"])
-            with c3:
-                st.write("")
-                st.write("")
-                if st.button("Update Status", use_container_width=True):
-                    db.update_order_status(sel_order, new_status)
-                    db.log_audit(st.session_state["session_id"], "DEMO_STATUS_UPDATE", f"{sel_order} -> {new_status}")
-                    st.success(f"Status {sel_order} diperbarui ke {new_status}")
-                    st.rerun()
-    except Exception as exc:
-        st.error(f"Gagal memuat data order: {exc}")
-
-# TAB 3: ADMIN & HUMAN APPROVAL
-with tab_admin:
-    st.subheader("Antrean Human-in-the-Loop (Approval Refund > Rp 500.000 & Tiket)")
-    try:
-        tickets = db.fetch_tickets()
-        if not tickets:
-            st.info("Belum ada tiket eskalasi atau approval.")
-        else:
-            for t in tickets:
-                with st.container(border=True):
-                    ca, cb = st.columns([4, 1])
-                    with ca:
-                        st.markdown(f"**{t['ticket_id']}** • `{t['ticket_type']}` • Order: `{t['order_id']}` • Status: **{t['status']}**")
-                        st.caption(f"Email: {t['customer_email']} | Nominal: Rp {int(t.get('amount') or 0):,} | Alasan: {t['reason']}")
-                    with cb:
-                        if t["status"] == "PENDING":
-                            if st.button("Setujui", key=f"app_{t['ticket_id']}", use_container_width=True):
-                                db.resolve_ticket(t["ticket_id"], "APPROVED")
-                                if t["ticket_type"] == "HUMAN_APPROVAL" and t["order_id"]:
-                                    db.update_order_status(t["order_id"], "REFUNDED")
-                                db.log_audit("admin", "HITL_APPROVED", f"ticket={t['ticket_id']}")
-                                st.rerun()
-                            if st.button("Tolak", key=f"rej_{t['ticket_id']}", use_container_width=True):
-                                db.resolve_ticket(t["ticket_id"], "REJECTED")
-                                db.log_audit("admin", "HITL_REJECTED", f"ticket={t['ticket_id']}")
-                                st.rerun()
-    except Exception as exc:
-        st.error(f"Gagal memuat tiket: {exc}")
-
-    st.divider()
-    col_o, col_a = st.columns(2)
-    with col_o:
-        st.subheader("Daftar Order Terbaru")
+if view_mode == "Mode Pelanggan (Bersih)":
+    tab_chat, tab_catalog = st.tabs(["💬 Chat Customer Service", "🛒 Katalog Produk"])
+    with tab_chat:
+        render_chat_ui(show_trace=False)
+    with tab_catalog:
+        st.subheader("Katalog Produk NusaMart")
         try:
-            st.dataframe(db.fetch_orders(20), use_container_width=True, hide_index=True)
+            st.dataframe(db.fetch_products(), use_container_width=True, hide_index=True)
         except Exception as exc:
-            st.error(str(exc))
-    with col_a:
-        st.subheader("Audit Log Keamanan & Tool Calls")
+            st.error(f"Gagal memuat produk: {exc}")
+else:
+    tab_chat, tab_store, tab_admin = st.tabs(["💬 Chatbot CS", "🛒 Etalase & Simulasi Kurir", "🛡️ Admin & Human Approval"])
+    with tab_chat:
+        render_chat_ui(show_trace=True)
+
+    with tab_store:
+        st.subheader("Katalog Produk Real-Time (Supabase)")
         try:
-            st.dataframe(db.fetch_audit_logs(20), use_container_width=True, hide_index=True)
+            products = db.fetch_products()
+            st.dataframe(products, use_container_width=True, hide_index=True)
         except Exception as exc:
-            st.error(str(exc))
+            st.error(f"Gagal memuat produk dari Supabase: {exc}")
+
+        st.divider()
+        st.subheader("Simulasi Pembayaran & Status Kurir (Untuk Keperluan Demo)")
+        try:
+            orders = db.fetch_orders()
+            if orders:
+                order_ids = [o["order_id"] for o in orders]
+                c1, c2, c3 = st.columns([2, 2, 1])
+                with c1:
+                    sel_order = st.selectbox("Pilih Nomor Order", order_ids)
+                with c2:
+                    new_status = st.selectbox("Ubah Status Menjadi", ["PENDING_PAYMENT", "PAID_UNSHIPPED", "IN_TRANSIT", "DELIVERED"])
+                with c3:
+                    st.write("")
+                    st.write("")
+                    if st.button("Update Status", use_container_width=True):
+                        db.update_order_status(sel_order, new_status)
+                        db.log_audit(st.session_state["session_id"], "DEMO_STATUS_UPDATE", f"{sel_order} -> {new_status}")
+                        st.success(f"Status {sel_order} diperbarui ke {new_status}")
+                        st.rerun()
+        except Exception as exc:
+            st.error(f"Gagal memuat data order: {exc}")
+
+    with tab_admin:
+        st.subheader("Antrean Human-in-the-Loop (Approval Refund > Rp 500.000 & Tiket)")
+        try:
+            tickets = db.fetch_tickets()
+            if not tickets:
+                st.info("Belum ada tiket eskalasi atau approval.")
+            else:
+                for t in tickets:
+                    with st.container(border=True):
+                        ca, cb = st.columns([4, 1])
+                        with ca:
+                            st.markdown(f"**{t['ticket_id']}** • `{t['ticket_type']}` • Order: `{t['order_id']}` • Status: **{t['status']}**")
+                            st.caption(f"Email: {t['customer_email']} | Nominal: Rp {int(t.get('amount') or 0):,} | Alasan: {t['reason']}")
+                        with cb:
+                            if t["status"] == "PENDING":
+                                if st.button("Setujui", key=f"app_{t['ticket_id']}", use_container_width=True):
+                                    db.resolve_ticket(t["ticket_id"], "APPROVED")
+                                    if t["ticket_type"] == "HUMAN_APPROVAL" and t["order_id"]:
+                                        db.update_order_status(t["order_id"], "REFUNDED")
+                                    db.log_audit("admin", "HITL_APPROVED", f"ticket={t['ticket_id']}")
+                                    st.rerun()
+                                if st.button("Tolak", key=f"rej_{t['ticket_id']}", use_container_width=True):
+                                    db.resolve_ticket(t["ticket_id"], "REJECTED")
+                                    db.log_audit("admin", "HITL_REJECTED", f"ticket={t['ticket_id']}")
+                                    st.rerun()
+        except Exception as exc:
+            st.error(f"Gagal memuat tiket: {exc}")
+
+        st.divider()
+        col_o, col_a = st.columns(2)
+        with col_o:
+            st.subheader("Daftar Order Terbaru")
+            try:
+                st.dataframe(db.fetch_orders(20), use_container_width=True, hide_index=True)
+            except Exception as exc:
+                st.error(str(exc))
+        with col_a:
+            st.subheader("Audit Log Keamanan & Tool Calls")
+            try:
+                st.dataframe(db.fetch_audit_logs(20), use_container_width=True, hide_index=True)
+            except Exception as exc:
+                st.error(str(exc))
