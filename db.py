@@ -95,6 +95,17 @@ def update_order_address(order_id: str, new_address: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+def update_order_payment_method(order_id: str, new_method: str) -> dict | None:
+    sb = get_supabase()
+    res = (
+        sb.table("orders")
+        .update({"payment_method": new_method, "updated_at": datetime.now(timezone.utc).isoformat()})
+        .eq("order_id", order_id.upper().strip())
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
 def save_otp(email: str, code: str, ttl_minutes: int = 10) -> None:
     sb = get_supabase()
     expires_at = (datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)).isoformat()
